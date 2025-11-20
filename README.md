@@ -5,7 +5,6 @@
 - **Caio Cezar Dias**
 - **Isabely Toledo de Melo**
 
----
 
 ## Descrição do problema
 
@@ -18,7 +17,6 @@ O objetivo é encontrar um percurso de custo mínimo que:
 
 A instância utilizada contém 8 cidades posicionadas em um plano 2D, com coordenadas geradas aleatoriamente dentro do intervalo \([0, 100] \times [0, 100]\), mantendo uma seed fixa (`random.seed(32)`) para garantir reprodutibilidade.
 
----
 
 ## Estrutura geral do algoritmo
 
@@ -91,7 +89,6 @@ O algoritmo segue o ciclo padrão de um AG:
 9. **Registro do histórico**  
    - A cada geração, é registrada a melhor distância encontrada, permitindo a plotagem da evolução da aptidão ao longo das gerações.
 
----
 
 ## Bibliotecas utilizadas
 
@@ -104,7 +101,6 @@ O algoritmo segue o ciclo padrão de um AG:
   - As cidades como nós;
   - As conexões da melhor rota como arestas.
 
----
 
 ## Saídas do programa
 
