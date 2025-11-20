@@ -3,216 +3,192 @@ import math
 import matplotlib.pyplot as plt
 import networkx as nx
 
-# ==============================================================================
-# CONFIGURAÇÕES E PARÂMETROS
-# ==============================================================================
-random.seed(32) # Garante a reprodutibilidade das coordenadas das cidades
+random.seed(32)
 
-# Parâmetros do Algoritmo Genético
-N_CIDADES = 8
-TAM_POPULACAO = 100        # Entre 40 e 120
-N_GERACOES = 200           # Entre 150 e 400
-TAXA_CROSSOVER = 0.8       # 80%
-TAXA_MUTACAO = 0.02        # 2%
-N_ELITISMO = 2             # Preserva os 2 melhores
-TAM_TORNEIO = 3            # K para seleção por torneio
+Ncidades = 8
+cidades = {i: (random.uniform(0, 100), random.uniform(0, 100)) for i in range(Ncidades)}
 
-# Geração das Cidades (Conforme enunciado)
-cidades = {i: (random.uniform(0, 100), random.uniform(0, 100)) for i in range(N_CIDADES)}
+# tamanho da população (entre 40 e 120)
+POP_SIZE = 100
+# número máximo de gerações (entre 150 e 400)
+NUM_GENERATIONS = 200
+# k da seleção por torneio (entre 2 e 4)
+TOURNAMENT_SIZE = 3
+# taxa de crossover (~80%)
+CROSSOVER_RATE = 0.8
+# taxa de mutação (2%, entre 1% e 5%)
+MUTATION_RATE = 0.02
+# número de indivíduos preservados por elitismo
+ELITE_SIZE = 2
+# critério opcional de parada por estagnação
+NO_IMPROVEMENT_LIMIT = 50
 
-# ==============================================================================
-# FUNÇÕES AUXILIARES (DISTÂNCIA E FITNESS)
-# ==============================================================================
+# Funções auxiliares do TSP
+def distance(city1, city2):
+    x1, y1 = cidades[city1]
+    x2, y2 = cidades[city2]
+    return math.hypot(x2 - x1, y2 - y1)
 
-def calcular_distancia_euclidiana(cid1, cid2):
-    """Calcula a distância euclidiana entre dois pontos (x, y)."""
-    pos1 = cidades[cid1]
-    pos2 = cidades[cid2]
-    return math.sqrt((pos1[0] - pos2[0])**2 + (pos1[1] - pos2[1])**2)
+def tour_length(tour):
+    length = 0.0
+    for i in range(len(tour)):
+        city_from = tour[i]
+        city_to = tour[(i + 1) % len(tour)]
+        length += distance(city_from, city_to)
+    return length
 
-def calcular_fitness(cromossomo):
-    """
-    Calcula a aptidão do indivíduo.
-    O fitness é o inverso da distância total, pois queremos MINIMIZAR a distância.
-    """
-    distancia_total = 0
-    for i in range(len(cromossomo)):
-        cidade_atual = cromossomo[i]
-        # Conecta com a próxima cidade, e a última volta para a primeira (ciclo)
-        proxima_cidade = cromossomo[(i + 1) % len(cromossomo)]
-        distancia_total += calcular_distancia_euclidiana(cidade_atual, proxima_cidade)
-    
-    return 1 / distancia_total, distancia_total
+def fitness(tour):
+    return 1.0 / tour_length(tour)
 
-# ==============================================================================
-# OPERADORES GENÉTICOS
-# ==============================================================================
+def create_individual():
+    tour = list(cidades.keys())
+    random.shuffle(tour)
+    return tour
 
-def criar_individuo():
-    """Cria um indivíduo (rota) como uma permutação aleatória das cidades."""
-    individuo = list(cidades.keys())
-    random.shuffle(individuo)
-    return individuo
+def create_population(size):
+    return [create_individual() for _ in range(size)]
 
-def criar_populacao(tamanho):
-    """Gera a população inicial."""
-    return [criar_individuo() for _ in range(tamanho)]
+def fill_child(child, other_parent, size, b):
+    idx = (b + 1) % size
+    parent_idx = (b + 1) % size
+    while None in child:
+        gene = other_parent[parent_idx]
+        if gene not in child:
+            child[idx] = gene
+            idx = (idx + 1) % size
+        parent_idx = (parent_idx + 1) % size
+    return child
 
-def selecao_torneio(populacao, fitnesses):
-    """
-    Seleciona um pai via Torneio.
-    Escolhe 'k' indivíduos aleatórios e retorna o melhor entre eles.
-    """
-    selecionados = random.sample(list(zip(populacao, fitnesses)), TAM_TORNEIO)
-    # Retorna o indivíduo com o maior fitness (menor distância)
-    return max(selecionados, key=lambda item: item[1][0])[0]
+# Operador de selecao por torneio
+def tournament_selection(population, k):
+    selected = random.sample(population, k)
+    selected.sort(key=lambda ind: tour_length(ind))
+    return selected[0]
 
-def crossover_ox(pai1, pai2):
-    """
-    Ordered Crossover (OX1) - Adequado para problemas de permutação (TSP).
-    Preserva a ordem relativa dos genes e evita duplicatas.
-    """
-    tamanho = len(pai1)
-    filho = [-1] * tamanho
-    
-    # 1. Selecionar subsegmento do Pai 1
-    inicio, fim = sorted(random.sample(range(tamanho), 2))
-    
-    # Copia o segmento do pai 1 para o filho
-    filho[inicio:fim+1] = pai1[inicio:fim+1]
-    
-    # 2. Preencher o restante com genes do Pai 2 (na ordem original do Pai 2)
-    genes_usados = set(filho[inicio:fim+1])
-    pos_atual = (fim + 1) % tamanho
-    
-    for gene in pai2:
-        # Se o gene ainda não está no filho, adiciona ele
-        if gene not in genes_usados:
-            # Encontra a próxima posição vazia
-            while filho[pos_atual] != -1:
-                pos_atual = (pos_atual + 1) % tamanho
-            
-            filho[pos_atual] = gene
-            genes_usados.add(gene)
-            
-    return filho
+# Operador de crossover
+def order_crossover(parent1, parent2):
+    if random.random() > CROSSOVER_RATE:
+        return parent1[:], parent2[:]
 
-def mutacao_swap(individuo):
-    """
-    Mutação por Troca (Swap Mutation).
-    Troca duas cidades de posição aleatoriamente.
-    """
-    idx1, idx2 = random.sample(range(len(individuo)), 2)
-    individuo[idx1], individuo[idx2] = individuo[idx2], individuo[idx1]
-    return individuo
+    size = len(parent1)
+    a, b = sorted(random.sample(range(size), 2))
 
-# ==============================================================================
-# CICLO EVOLUTIVO (MAIN)
-# ==============================================================================
+    child1 = [None] * size
+    child2 = [None] * size
 
-def executar_ag():
-    # 1. População Inicial
-    populacao = criar_populacao(TAM_POPULACAO)
-    melhor_global_rota = None
-    melhor_global_distancia = float('inf')
-    
-    historico_distancia = []
+    child1[a:b + 1] = parent1[a:b + 1]
+    child2[a:b + 1] = parent2[a:b + 1]
 
-    print(f"Iniciando AG com {TAM_POPULACAO} indivíduos por {N_GERACOES} gerações...")
-    print("-" * 50)
+    child1 = fill_child(child1, parent2, size, b)
+    child2 = fill_child(child2, parent1, size, b)
 
-    for geracao in range(N_GERACOES):
-        # Avaliação
-        fitnesses = [calcular_fitness(ind) for ind in populacao]
-        
-        # Identificar melhor da geração atual
-        # fitnesses é uma tupla (score, distancia_real)
-        melhor_ind_gen, (melhor_fit_gen, melhor_dist_gen) = max(zip(populacao, fitnesses), key=lambda item: item[1][0])
-        
-        # Atualizar melhor global
-        if melhor_dist_gen < melhor_global_distancia:
-            melhor_global_distancia = melhor_dist_gen
-            melhor_global_rota = list(melhor_ind_gen)
-            print(f"Geração {geracao}: Nova melhor distância = {melhor_global_distancia:.4f}")
-        
-        historico_distancia.append(melhor_dist_gen)
+    return child1, child2
 
-        # Elitismo: Preservar os N melhores
-        populacao_ordenada = sorted(zip(populacao, fitnesses), key=lambda item: item[1][0], reverse=True)
-        nova_populacao = [ind for ind, fit in populacao_ordenada[:N_ELITISMO]]
+# Operador de mutacao
+def swap_mutation(individual):
+    for i in range(len(individual)):
+        if random.random() < MUTATION_RATE:
+            j = random.randint(0, len(individual) - 1)
+            individual[i], individual[j] = individual[j], individual[i]
 
-        # Criação da nova geração
-        while len(nova_populacao) < TAM_POPULACAO:
-            # Seleção
-            pai1 = selecao_torneio(populacao, fitnesses)
-            pai2 = selecao_torneio(populacao, fitnesses)
-            
-            # Crossover
-            if random.random() < TAXA_CROSSOVER:
-                filho = crossover_ox(pai1, pai2)
-            else:
-                filho = pai1[:] # Cópia se não houver crossover
-            
-            # Mutação
-            if random.random() < TAXA_MUTACAO:
-                filho = mutacao_swap(filho)
-            
-            nova_populacao.append(filho)
-        
-        populacao = nova_populacao
+# Gera uma nova populacao
+def evolve_population(population):
+    population.sort(key=lambda ind: tour_length(ind))
 
-    return melhor_global_rota, melhor_global_distancia, historico_distancia
+    new_population = population[:ELITE_SIZE]
 
-# ==============================================================================
-# EXECUÇÃO E VISUALIZAÇÃO
-# ==============================================================================
+    # selecao por torneio
+    while len(new_population) < POP_SIZE:
+        parent1 = tournament_selection(population, TOURNAMENT_SIZE)
+        parent2 = tournament_selection(population, TOURNAMENT_SIZE)
 
-if __name__ == "__main__":
-    melhor_rota, melhor_distancia, historico = executar_ag()
+        child1, child2 = order_crossover(parent1, parent2)
 
-    print("-" * 50)
-    print("RESULTADO FINAL")
-    print(f"Melhor Distância Encontrada: {melhor_distancia:.4f}")
-    print(f"Melhor Rota: {melhor_rota}")
-    
-    # Adiciona o ponto inicial ao final da rota para fechar o ciclo no gráfico
-    rota_para_plot = melhor_rota + [melhor_rota[0]]
+        swap_mutation(child1)
+        swap_mutation(child2)
 
-    # --- Plotagem com NetworkX ---
-    G = nx.Graph()
-    
-    # Adicionar nós
-    for node, pos in cidades.items():
-        G.add_node(node, pos=pos)
-    
-    # Adicionar arestas baseadas na melhor rota
-    arestas = []
-    for i in range(len(rota_para_plot)-1):
-        arestas.append((rota_para_plot[i], rota_para_plot[i+1]))
-    
-    G.add_edges_from(arestas)
+        new_population.append(child1)
+        if len(new_population) < POP_SIZE:
+            new_population.append(child2)
 
-    # Configuração visual
-    plt.figure(figsize=(10, 5))
-    
-    # Subplot 1: Mapa das Cidades
-    plt.subplot(1, 2, 1)
-    pos = nx.get_node_attributes(G, 'pos')
-    # Desenha nós
-    nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_size=500)
-    # Desenha arestas
-    nx.draw_networkx_edges(G, pos, edgelist=arestas, edge_color='r', width=2)
-    # Desenha labels
-    nx.draw_networkx_labels(G, pos)
-    plt.title(f"Melhor Rota (Dist: {melhor_distancia:.2f})")
+    return new_population
 
-    # Subplot 2: Convergência
-    plt.subplot(1, 2, 2)
-    plt.plot(historico)
-    plt.title("Evolução da Distância (Convergência)")
-    plt.xlabel("Geração")
-    plt.ylabel("Distância Total")
-    plt.grid(True)
+# Executa o algoritmo genetico completo er egistra o melhor individuo por geracao
+def run_ga():
+    population = create_population(POP_SIZE)
+    best_per_gen = []
+    best_individual = None
+    best_distance = float('inf')
+    no_improvement = 0
 
-    plt.tight_layout()
-    plt.show()
+    for gen in range(NUM_GENERATIONS):
+        population.sort(key=lambda ind: tour_length(ind))
+        current_best = population[0]
+        current_distance = tour_length(current_best)
+        best_per_gen.append(current_distance)
+
+        if current_distance < best_distance:
+            best_distance = current_distance
+            best_individual = current_best[:]
+            no_improvement = 0
+        else:
+            no_improvement += 1
+
+        if NO_IMPROVEMENT_LIMIT is not None and no_improvement >= NO_IMPROVEMENT_LIMIT:
+            print(f"Parando na geração {gen} por falta de melhoria.")
+            break
+
+        population = evolve_population(population)
+
+    population.sort(key=lambda ind: tour_length(ind))
+    current_best = population[0]
+    current_distance = tour_length(current_best)
+    if current_distance < best_distance:
+        best_distance = current_distance
+        best_individual = current_best[:]
+        best_per_gen.append(current_distance)
+
+    return best_individual, best_distance, best_per_gen
+
+best_tour, best_dist, history = run_ga()
+
+print("Coordenadas das cidades:")
+for city, coord in cidades.items():
+    print(f"Cidade {city}: {coord}")
+
+print("\nMelhor rota encontrada:")
+print(best_tour)
+print(f"Melhor distância total: {best_dist:.4f}")
+
+# Graficos
+G = nx.Graph()
+for node, pos in cidades.items():
+    G.add_node(node, pos=pos)
+
+for i in range(len(best_tour)):
+    u = best_tour[i]
+    v = best_tour[(i + 1) % len(best_tour)]
+    G.add_edge(u, v)
+
+fig, ax = plt.subplots(figsize=(6, 6))
+pos = nx.get_node_attributes(G, 'pos')
+nx.draw(G, pos, with_labels=True, ax=ax)
+
+ax.set_axis_on()
+ax.tick_params(left=True, bottom=True, labelleft=False, labelbottom=False)
+
+ax.set_title(
+    f"Melhor rota encontrada\n"
+    f"Distância total: {best_dist:.4f}"
+)
+
+plt.tight_layout()
+plt.show()
+
+plt.figure()
+plt.plot(history)
+plt.xlabel("Geração")
+plt.ylabel("Melhor distância")
+plt.title("Evolução da melhor distância por geração")
+plt.tight_layout()
+plt.show()
